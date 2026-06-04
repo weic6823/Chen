@@ -1,0 +1,54 @@
+"""Global configuration for AirPresenter."""
+
+from __future__ import annotations
+
+from typing import Final
+
+
+# Camera and window.
+CAMERA_INDEX: Final[int] = 0
+FRAME_WIDTH: Final[int] = 1280
+FRAME_HEIGHT: Final[int] = 720
+WINDOW_NAME: Final[str] = "AirPresenter"
+MIRROR_IMAGE: Final[bool] = True
+SHOW_LANDMARKS: Final[bool] = True
+
+# MediaPipe detection.
+MAX_NUM_HANDS: Final[int] = 1
+MIN_DETECTION_CONFIDENCE: Final[float] = 0.65
+MIN_TRACKING_CONFIDENCE: Final[float] = 0.65
+
+# Gesture thresholds. MediaPipe hand coordinates are normalized.
+FINGER_EXTEND_Y_GAP: Final[float] = 0.05
+THUMB_EXTEND_X_GAP: Final[float] = 0.08
+OK_CIRCLE_DISTANCE: Final[float] = 0.065
+FIST_TIP_PALM_DISTANCE: Final[float] = 0.16
+PALM_NORMAL_Z_THRESHOLD: Final[float] = 0.001
+PALM_FRONT_RIGHT_HAND_NORMAL_SIGN: Final[int] = 1
+
+# Debounce and hold timing.
+STABLE_FRAMES: Final[int] = 8
+ACTION_COOLDOWN_SECONDS: Final[float] = 1.0
+DRAW_TOGGLE_COOLDOWN_SECONDS: Final[float] = 1.2
+EXIT_HOLD_SECONDS: Final[float] = 1.0
+PAUSE_SEQUENCE_TIMEOUT_SECONDS: Final[float] = 1.5
+
+# Motion gesture detection.
+STILL_HISTORY_SIZE: Final[int] = 8
+STILL_MOVEMENT_THRESHOLD: Final[float] = 0.025
+SWIPE_HISTORY_SIZE: Final[int] = 7
+SWIPE_Y_DELTA: Final[float] = 0.12
+SWIPE_MAX_X_DELTA: Final[float] = 0.10
+PUSH_HISTORY_SIZE: Final[int] = 10
+PUSH_SCALE_DELTA: Final[float] = 0.06
+
+# Annotation rendering.
+ANNOTATION_COLOR: Final[tuple[int, int, int]] = (0, 0, 255)
+ANNOTATION_THICKNESS: Final[int] = 5
+ANNOTATION_ALPHA: Final[float] = 0.72
+SMOOTHING_WINDOW: Final[int] = 5
+MIN_POINT_DISTANCE: Final[float] = 3.0
+
+# On-screen text.
+FONT_SCALE: Final[float] = 0.8
+FONT_THICKNESS: Final[int] = 2

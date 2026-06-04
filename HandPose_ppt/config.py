@@ -21,24 +21,20 @@ MIN_TRACKING_CONFIDENCE: Final[float] = 0.65
 # Gesture thresholds. MediaPipe hand coordinates are normalized.
 FINGER_EXTEND_Y_GAP: Final[float] = 0.05
 THUMB_EXTEND_X_GAP: Final[float] = 0.08
+DRAW_FINGERS_CLOSE_GAP: Final[float] = 0.055
 OK_CIRCLE_DISTANCE: Final[float] = 0.065
 FIST_TIP_PALM_DISTANCE: Final[float] = 0.16
-PALM_NORMAL_Z_THRESHOLD: Final[float] = 0.001
-PALM_FRONT_RIGHT_HAND_NORMAL_SIGN: Final[int] = 1
 
 # Debounce and hold timing.
 STABLE_FRAMES: Final[int] = 8
 ACTION_COOLDOWN_SECONDS: Final[float] = 1.0
 DRAW_TOGGLE_COOLDOWN_SECONDS: Final[float] = 1.2
+CLEAR_HOLD_SECONDS: Final[float] = 0.5
 EXIT_HOLD_SECONDS: Final[float] = 1.0
-PAUSE_SEQUENCE_TIMEOUT_SECONDS: Final[float] = 1.5
 
-# Motion gesture detection.
+# Stillness and forward-push detection.
 STILL_HISTORY_SIZE: Final[int] = 8
 STILL_MOVEMENT_THRESHOLD: Final[float] = 0.025
-SWIPE_HISTORY_SIZE: Final[int] = 7
-SWIPE_Y_DELTA: Final[float] = 0.12
-SWIPE_MAX_X_DELTA: Final[float] = 0.10
 PUSH_HISTORY_SIZE: Final[int] = 10
 PUSH_SCALE_DELTA: Final[float] = 0.06
 

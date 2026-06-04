@@ -45,7 +45,7 @@ class GestureResult:
 
 
 class GestureRecognizer:
-    """Recognize hand gestures and maintain NORMAL/DRAWING/PAUSED state."""
+    """Recognize README-defined hand gestures and maintain presenter state."""
 
     def __init__(self) -> None:
         self.state = PresenterState.NORMAL
@@ -54,22 +54,20 @@ class GestureRecognizer:
         self.last_stable_gesture = "none"
         self.stable_count = 0
         self.wrist_history: Deque[np.ndarray] = deque(maxlen=config.STILL_HISTORY_SIZE)
-        self.swipe_history: Deque[np.ndarray] = deque(maxlen=config.SWIPE_HISTORY_SIZE)
         self.scale_history: Deque[float] = deque(maxlen=config.PUSH_HISTORY_SIZE)
+        self.clear_start_time: Optional[float] = None
         self.exit_start_time: Optional[float] = None
-        self.pause_armed = False
-        self.pause_armed_time: Optional[float] = None
+        self.fist_start_time: Optional[float] = None
 
     def reset_when_no_hand(self) -> None:
         """Reset short gesture buffers when no hand is detected."""
         self.last_stable_gesture = "none"
         self.stable_count = 0
         self.wrist_history.clear()
-        self.swipe_history.clear()
         self.scale_history.clear()
+        self.clear_start_time = None
         self.exit_start_time = None
-        self.pause_armed = False
-        self.pause_armed_time = None
+        self.fist_start_time = None
 
     def recognize(self, landmarks: np.ndarray, handedness: str) -> GestureResult:
         """Recognize the current frame and emit presenter actions."""
@@ -78,9 +76,7 @@ class GestureRecognizer:
         raw_gesture = self._classify_gesture(flags)
         stable_gesture = self._update_stability(raw_gesture)
         action = GestureAction.NONE
-        gesture_name = stable_gesture
 
-        # Keep OK as an emergency quit gesture.
         if flags["ok"]:
             if self.exit_start_time is None:
                 self.exit_start_time = now
@@ -96,57 +92,51 @@ class GestureRecognizer:
         else:
             self.exit_start_time = None
 
-        if self.state == PresenterState.NORMAL:
-            if stable_gesture == "draw_mode" and self._toggle_ready(now):
-                self.state = PresenterState.DRAWING
-                self.last_toggle_time = now
-                action = GestureAction.TOGGLE_DRAW
-                gesture_name = "draw_mode"
-                self.swipe_history.clear()
-            elif flags["swipe_down"] and self._action_ready(now):
-                action = GestureAction.NEXT
-                gesture_name = "swipe_down"
-                self.last_action_time = now
-                self.swipe_history.clear()
-            elif flags["swipe_up"] and self._action_ready(now):
-                action = GestureAction.PREVIOUS
-                gesture_name = "swipe_up"
-                self.last_action_time = now
-                self.swipe_history.clear()
-
+        if flags["clear"]:
+            if self.clear_start_time is None:
+                self.clear_start_time = now
+            if now - self.clear_start_time >= config.CLEAR_HOLD_SECONDS:
+                action = GestureAction.CLEAR
+                self.clear_start_time = None
         else:
-            if stable_gesture == "exit_draw" and self._toggle_ready(now):
-                self.state = PresenterState.NORMAL
-                self.last_toggle_time = now
-                self.pause_armed = False
-                action = GestureAction.TOGGLE_DRAW
-                gesture_name = "exit_draw"
-            elif flags["open_front"]:
-                self.pause_armed = True
-                self.pause_armed_time = now
-                gesture_name = "pause_ready"
-            elif flags["fist"] and self._pause_sequence_ready(now) and self._toggle_ready(now):
-                self.state = PresenterState.PAUSED
-                self.last_toggle_time = now
-                self.pause_armed = False
-                self.pause_armed_time = None
-                action = GestureAction.TOGGLE_DRAW
-                gesture_name = "pause"
-            elif self.pause_armed_time is not None and now - self.pause_armed_time > config.PAUSE_SEQUENCE_TIMEOUT_SECONDS:
-                self.pause_armed = False
-                self.pause_armed_time = None
+            self.clear_start_time = None
 
-        draw_suppressed = (
-            action == GestureAction.TOGGLE_DRAW
-            or flags["open_front"]
-            or flags["open_back"]
-            or flags["fist"]
-        )
-        is_drawing = self.state == PresenterState.DRAWING and not draw_suppressed
+        if self.state in (PresenterState.DRAWING, PresenterState.PAUSED) and flags["fist"]:
+            if self.fist_start_time is None:
+                self.fist_start_time = now
+            if now - self.fist_start_time >= 0.35 and self._toggle_ready(now):
+                self.state = (
+                    PresenterState.PAUSED
+                    if self.state == PresenterState.DRAWING
+                    else PresenterState.DRAWING
+                )
+                self.last_toggle_time = now
+                self.fist_start_time = None
+        elif not flags["fist"]:
+            self.fist_start_time = None
+
+        if stable_gesture == "draw_mode" and self._toggle_ready(now):
+            self.state = (
+                PresenterState.DRAWING
+                if self.state == PresenterState.NORMAL
+                else PresenterState.NORMAL
+            )
+            self.last_toggle_time = now
+            action = GestureAction.TOGGLE_DRAW
+
+        if self.state == PresenterState.NORMAL and action == GestureAction.NONE:
+            if stable_gesture == "next" and self._action_ready(now):
+                action = GestureAction.NEXT
+                self.last_action_time = now
+            elif stable_gesture == "previous" and self._action_ready(now):
+                action = GestureAction.PREVIOUS
+                self.last_action_time = now
+
+        is_drawing = self.state == PresenterState.DRAWING
         return GestureResult(
             state=self.state,
             action=action,
-            gesture_name=gesture_name,
+            gesture_name=stable_gesture,
             is_drawing=is_drawing,
             should_exit=False,
             debug=flags,
@@ -159,13 +149,10 @@ class GestureRecognizer:
 
     def _compute_flags(self, landmarks: np.ndarray, handedness: str) -> dict[str, bool]:
         fingers = self._finger_states(landmarks, handedness)
-        open_hand = all(fingers.values())
-        fist = self._is_fist(landmarks)
-        palm_front = self._is_palm_facing_camera(landmarks, handedness)
-        hand_back = self._is_back_of_hand_facing_camera(landmarks, handedness)
-        open_front = open_hand and palm_front and self._fingers_pointing_up(landmarks)
-        open_back = open_hand and hand_back and self._fingers_pointing_up(landmarks)
-        swipe = self._vertical_swipe(landmarks, open_front)
+        palm_front = self._is_palm_facing_camera(landmarks)
+        still = self._is_hand_still(landmarks)
+        pushed = self._is_pushing_forward(landmarks)
+        index_middle_close = self._distance(landmarks[8], landmarks[12]) < config.DRAW_FINGERS_CLOSE_GAP
         ok_circle = self._distance(landmarks[4], landmarks[8]) < config.OK_CIRCLE_DISTANCE
 
         return {
@@ -174,20 +161,37 @@ class GestureRecognizer:
             "middle": fingers["middle"],
             "ring": fingers["ring"],
             "pinky": fingers["pinky"],
-            "open_front": open_front,
-            "open_back": open_back,
             "palm_front": palm_front,
-            "hand_back": hand_back,
-            "swipe_down": swipe == "down",
-            "swipe_up": swipe == "up",
-            "draw_mode": fingers["thumb"] and fingers["index"] and not fingers["middle"] and not fingers["ring"] and not fingers["pinky"],
-            "exit_draw": open_back,
+            "still": still,
+            "pushed": pushed,
+            "next": fingers["index"]
+            and not fingers["middle"]
+            and not fingers["ring"]
+            and not fingers["pinky"]
+            and not fingers["thumb"]
+            and palm_front
+            and still,
+            "previous": fingers["thumb"]
+            and not fingers["index"]
+            and not fingers["middle"]
+            and not fingers["ring"]
+            and not fingers["pinky"]
+            and palm_front
+            and still,
+            "draw_mode": fingers["index"]
+            and fingers["middle"]
+            and index_middle_close
+            and not fingers["ring"]
+            and not fingers["pinky"]
+            and not fingers["thumb"]
+            and palm_front,
+            "clear": all(fingers.values()) and palm_front and pushed,
             "ok": ok_circle and fingers["middle"] and fingers["ring"] and fingers["pinky"],
-            "fist": fist,
+            "fist": self._is_fist(landmarks),
         }
 
     def _classify_gesture(self, flags: dict[str, bool]) -> str:
-        for name in ("exit_draw", "draw_mode", "swipe_down", "swipe_up", "open_front", "ok", "fist"):
+        for name in ("draw_mode", "next", "previous", "clear", "ok", "fist"):
             if flags[name]:
                 return name
         return "none"
@@ -222,44 +226,12 @@ class GestureRecognizer:
             "pinky": bool(pinky),
         }
 
-    def _fingers_pointing_up(self, landmarks: np.ndarray) -> bool:
-        fingertips_y = np.mean(landmarks[[8, 12, 16, 20], 1])
-        knuckles_y = np.mean(landmarks[[5, 9, 13, 17], 1])
-        return bool(fingertips_y < knuckles_y - config.FINGER_EXTEND_Y_GAP)
-
-    def _vertical_swipe(self, landmarks: np.ndarray, open_front: bool) -> str:
-        if not open_front:
-            self.swipe_history.clear()
-            return "none"
-
-        self.swipe_history.append(self._palm_center(landmarks))
-        if len(self.swipe_history) < self.swipe_history.maxlen:
-            return "none"
-
-        points = np.array(self.swipe_history)
-        delta_x = float(points[-1][0] - points[0][0])
-        delta_y = float(points[-1][1] - points[0][1])
-        if abs(delta_x) > config.SWIPE_MAX_X_DELTA:
-            return "none"
-        if delta_y > config.SWIPE_Y_DELTA:
-            return "down"
-        if delta_y < -config.SWIPE_Y_DELTA:
-            return "up"
-        return "none"
-
-    def _is_palm_facing_camera(self, landmarks: np.ndarray, handedness: str) -> bool:
-        return self._palm_orientation_score(landmarks, handedness) > config.PALM_NORMAL_Z_THRESHOLD
-
-    def _is_back_of_hand_facing_camera(self, landmarks: np.ndarray, handedness: str) -> bool:
-        return self._palm_orientation_score(landmarks, handedness) < -config.PALM_NORMAL_Z_THRESHOLD
-
-    def _palm_orientation_score(self, landmarks: np.ndarray, handedness: str) -> float:
-        wrist = landmarks[0]
-        index_mcp = landmarks[5]
-        pinky_mcp = landmarks[17]
-        normal_z = float(np.cross(index_mcp - wrist, pinky_mcp - wrist)[2])
-        hand_sign = -1.0 if handedness == "Left" else 1.0
-        return normal_z * hand_sign * float(config.PALM_FRONT_RIGHT_HAND_NORMAL_SIGN)
+    def _is_palm_facing_camera(self, landmarks: np.ndarray) -> bool:
+        palm_width = self._distance(landmarks[5], landmarks[17])
+        wrist_to_middle = self._distance(landmarks[0], landmarks[9])
+        if wrist_to_middle == 0:
+            return False
+        return palm_width / wrist_to_middle > 0.55
 
     def _is_hand_still(self, landmarks: np.ndarray) -> bool:
         self.wrist_history.append(landmarks[0].copy())
@@ -292,9 +264,6 @@ class GestureRecognizer:
             / 3.0
         )
 
-    def _palm_center(self, landmarks: np.ndarray) -> np.ndarray:
-        return np.mean(landmarks[[0, 5, 9, 13, 17], :2], axis=0)
-
     def _distance(self, p1: np.ndarray, p2: np.ndarray) -> float:
         return float(np.linalg.norm(p1[:2] - p2[:2]))
 
@@ -303,10 +272,3 @@ class GestureRecognizer:
 
     def _toggle_ready(self, now: float) -> bool:
         return now - self.last_toggle_time >= config.DRAW_TOGGLE_COOLDOWN_SECONDS
-
-    def _pause_sequence_ready(self, now: float) -> bool:
-        return (
-            self.pause_armed
-            and self.pause_armed_time is not None
-            and now - self.pause_armed_time <= config.PAUSE_SEQUENCE_TIMEOUT_SECONDS
-        )
